@@ -10,9 +10,9 @@ export async function GET() {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from("facts")
-      .select("id, topic, fact")
+      .select("id, topic, fact, created_at")
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(50);
 
     if (error) {
       console.error("[Facts API] Supabase error:", error);

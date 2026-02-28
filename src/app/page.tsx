@@ -1,13 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-/** Shape of one fact returned by GET /api/facts */
-interface PreviousFact {
-  id: string;
-  topic: string;
-  fact: string;
-}
+import Link from "next/link";
 
 export default function Home() {
   const [topic, setTopic] = useState("");
@@ -15,11 +9,6 @@ export default function Home() {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [previousFacts, setPreviousFacts] = useState<PreviousFact[]>([]);
-  const [previousLoading, setPreviousLoading] = useState(false);
-  const [previousError, setPreviousError] = useState<string | null>(null);
-  const [showPrevious, setShowPrevious] = useState(false);
 
   async function handleGetFact(e: React.FormEvent) {
     e.preventDefault();
@@ -48,25 +37,6 @@ export default function Home() {
       setError("Could not reach the server. Try again.");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleShowPrevious() {
-    setPreviousError(null);
-    setShowPrevious(true);
-    setPreviousLoading(true);
-    try {
-      const res = await fetch("/api/facts");
-      const data = await res.json();
-      if (!res.ok) {
-        setPreviousError(data.error ?? "Could not load previous facts.");
-        return;
-      }
-      setPreviousFacts(data.facts ?? []);
-    } catch {
-      setPreviousError("Could not reach the server. Try again.");
-    } finally {
-      setPreviousLoading(false);
     }
   }
 
@@ -100,14 +70,12 @@ export default function Home() {
           >
             {loading ? "Getting fact…" : "Get a fact"}
           </button>
-          <button
-            type="button"
-            onClick={handleShowPrevious}
-            disabled={previousLoading}
-            className="rounded-lg border border-zinc-300 bg-white px-4 py-3 font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          <Link
+            href="/facts"
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-center font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {previousLoading ? "Loading…" : "See previous facts"}
-          </button>
+            See previous facts
+          </Link>
         </form>
 
         {error && (
@@ -137,37 +105,6 @@ export default function Home() {
           </div>
         )}
 
-        {showPrevious && (
-          <div className="mt-8">
-            <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              Previous facts
-            </h2>
-            {previousError && (
-              <p className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-red-700 dark:bg-red-950/50 dark:text-red-300">
-                {previousError}
-              </p>
-            )}
-            {previousLoading ? (
-              <p className="text-zinc-500 dark:text-zinc-400">Loading previous facts…</p>
-            ) : previousFacts.length === 0 && !previousError ? (
-              <p className="text-zinc-500 dark:text-zinc-400">No previous facts yet. Generate one above!</p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {previousFacts.map((item) => (
-                  <li
-                    key={item.id}
-                    className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                      {item.topic}
-                    </p>
-                    <p className="mt-1 text-zinc-800 dark:text-zinc-200">{item.fact}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </main>
     </div>
   );
