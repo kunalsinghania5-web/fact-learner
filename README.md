@@ -28,6 +28,16 @@ Facts are stored in Supabase using the **Supabase REST API** (project URL + API 
 
 If `SUPABASE_URL` or `SUPABASE_API_SECRET_KEY` is missing, the app still returns facts from OpenAI but does not save them.
 
+### Text-to-speech (ElevenLabs)
+
+After a fact is shown, a speaker button lets you hear it read aloud via [ElevenLabs](https://elevenlabs.io):
+
+1. Get an API key from the ElevenLabs dashboard (API Keys section).
+2. Add to `.env`: `ELEVENLABS_API_KEY=your_key`.
+3. (Optional) To use a different voice, set `ELEVENLABS_VOICE_ID` to a [voice ID](https://elevenlabs.io/docs/api-reference/voices) from your account. If unset, a default voice is used.
+
+If `ELEVENLABS_API_KEY` is missing, the speaker button still appears but requests will fail with a friendly error.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
