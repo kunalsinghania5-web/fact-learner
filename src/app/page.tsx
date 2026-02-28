@@ -1,20 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [fact, setFact] = useState<string | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streak, setStreak] = useState<number | null>(null);
+
+  async function fetchStreak() {
+    try {
+      const res = await fetch("/api/streak");
+      const data = await res.json();
+      if (res.ok && typeof data.streak === "number") setStreak(data.streak);
+    } catch {
+      // Non-blocking: leave streak as-is on failure
+    }
+  }
+
+  useEffect(() => {
+    fetchStreak();
+  }, []);
 
   async function handleGetFact(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setFact(null);
-    setSourceUrl(null);
     if (!topic.trim()) {
       setError("Please enter a topic.");
       return;
@@ -32,7 +45,8 @@ export default function Home() {
         return;
       }
       setFact(data.fact);
-      setSourceUrl(data.sourceUrl ?? null);
+      // Refresh streak after generating a new fact (may have started or extended it)
+      fetchStreak();
     } catch {
       setError("Could not reach the server. Try again.");
     } finally {
@@ -46,6 +60,12 @@ export default function Home() {
         <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
           Fact Learner
         </h1>
+        {streak !== null && streak > 0 && (
+          <p className="mb-2 flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+            <span aria-hidden>🔥</span>
+            <span>{streak} day streak — keep learning every day!</span>
+          </p>
+        )}
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
           Enter a topic and get one interesting fact from Open AI.
         </p>
@@ -96,18 +116,6 @@ export default function Home() {
               Fact about “{topic}”
             </p>
             <p className="mt-2 text-zinc-800 dark:text-zinc-200">{fact}</p>
-            {sourceUrl && (
-              <p className="mt-3 text-sm">
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-zinc-600 underline decoration-zinc-400 underline-offset-2 hover:text-zinc-900 hover:decoration-zinc-600 dark:text-zinc-400 dark:decoration-zinc-500 dark:hover:text-zinc-100 dark:hover:decoration-zinc-400"
-                >
-                  View source
-                </a>
-              </p>
-            )}
           </div>
         )}
 

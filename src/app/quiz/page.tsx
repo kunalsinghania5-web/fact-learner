@@ -13,7 +13,6 @@ interface FactReveal {
   id: string;
   topic: string;
   fact: string;
-  sourceUrl: string | null;
 }
 
 export default function QuizPage() {
@@ -163,24 +162,12 @@ export default function QuizPage() {
                   : "rounded-lg border border-amber-800 bg-amber-950/50 px-4 py-3 text-amber-300"
               }
             >
-              {result.correct ? "Correct!" : "Not quite."}
+              {result.correct ? "Correct! Smarty pants!" : "Not quite."}
             </div>
             {result.fact && (
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-5">
                 <p className="text-sm font-medium text-zinc-500">{result.fact.topic}</p>
                 <p className="mt-2 text-zinc-300 leading-relaxed">{result.fact.fact}</p>
-                {result.fact.sourceUrl && (
-                  <p className="mt-4">
-                    <a
-                      href={result.fact.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sky-400 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-300"
-                    >
-                      View source
-                    </a>
-                  </p>
-                )}
               </div>
             )}
             <button

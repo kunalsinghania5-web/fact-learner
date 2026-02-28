@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     // Return the fact so the UI can show it after answering.
     const { data: factRow } = await supabase
       .from("facts")
-      .select("id, topic, fact, source_url")
+      .select("id, topic, fact")
       .eq("id", quiz.fact_id)
       .single();
 
@@ -102,7 +102,6 @@ export async function POST(request: Request) {
             id: factRow.id,
             topic: factRow.topic,
             fact: factRow.fact,
-            sourceUrl: factRow.source_url ?? null,
           }
         : null,
     });

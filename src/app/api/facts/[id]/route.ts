@@ -18,7 +18,7 @@ export async function GET(
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from("facts")
-      .select("id, topic, fact, source_url, created_at")
+      .select("id, topic, fact, created_at")
       .eq("id", id)
       .single();
 
@@ -33,7 +33,6 @@ export async function GET(
       id: data.id,
       topic: data.topic,
       fact: data.fact,
-      sourceUrl: data.source_url ?? null,
       created_at: data.created_at,
     });
   } catch (err) {

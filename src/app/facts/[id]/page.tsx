@@ -7,7 +7,6 @@ interface FactDetail {
   id: string;
   topic: string;
   fact: string;
-  sourceUrl: string | null;
   created_at: string;
 }
 
@@ -114,18 +113,6 @@ export default function FactDetailPage({
           {fact.topic}
         </h1>
         <p className="mt-4 text-zinc-300 leading-relaxed">{fact.fact}</p>
-        {fact.sourceUrl && (
-          <p className="mt-6">
-            <a
-              href={fact.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sky-400 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-300 hover:decoration-sky-400"
-            >
-              View source
-            </a>
-          </p>
-        )}
       </main>
     </div>
   );

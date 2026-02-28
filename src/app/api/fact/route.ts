@@ -30,14 +30,13 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "system",
-          content: `You give one short, interesting fact with a source. Be accurate and concise.
+          content: `You give one short, interesting fact. Be accurate and concise.
 Reply with a single JSON object only, no other text. Use this exact shape:
-{"fact": "the fact text", "sourceUrl": "https://..."}
-For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britannica, official or well-known reference). Use a relevant, verifiable URL for the topic. If no specific page fits, use a general reference URL for the domain (e.g. https://en.wikipedia.org/wiki/Topic_name).`,
+{"fact": "the fact text"}`,
         },
         {
           role: "user",
-          content: `Give me one interesting fact about: ${trimmed}. Reply with JSON only: {"fact": "...", "sourceUrl": "..."}`,
+          content: `Give me one interesting fact about: ${trimmed}. Reply with JSON only: {"fact": "..."}`,
         },
       ],
       max_tokens: 300,
@@ -47,18 +46,11 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
     const raw =
       completion.choices[0]?.message?.content?.trim() || "{}";
     let fact = "No fact was returned.";
-    let sourceUrl: string | null = null;
 
     try {
-      const parsed = JSON.parse(raw) as { fact?: string; sourceUrl?: string };
+      const parsed = JSON.parse(raw) as { fact?: string };
       if (typeof parsed.fact === "string" && parsed.fact.trim()) {
         fact = parsed.fact.trim();
-      }
-      if (typeof parsed.sourceUrl === "string" && parsed.sourceUrl.trim()) {
-        const url = parsed.sourceUrl.trim();
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-          sourceUrl = url;
-        }
       }
     } catch {
       // If JSON parsing fails, treat raw as the fact (backward compatibility)
@@ -73,7 +65,7 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
         // Prevent duplicate writes: if this exact fact text already exists, skip insert
         const { data: existing } = await supabase
           .from("facts")
-          .select("id, fact, source_url")
+          .select("id, fact")
           .eq("fact", fact)
           .limit(1)
           .maybeSingle();
@@ -82,7 +74,6 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
           console.log("[Fact API] Skipping insert — fact already exists:", existing.id);
           return NextResponse.json({
             fact: existing.fact,
-            sourceUrl: existing.source_url ?? null,
             duplicate: true,
             id: existing.id,
           });
@@ -91,12 +82,11 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
         const payload = {
           topic: trimmed,
           fact,
-          source_url: sourceUrl,
+          source_url: null,
         };
         console.log("[Fact API] Saving to Supabase:", {
           topic: trimmed,
           factLength: fact.length,
-          hasSourceUrl: !!sourceUrl,
         });
         const { data, error } = await supabase.from("facts").insert(payload).select();
         if (error) {
@@ -194,7 +184,7 @@ Keep the answer brief so it can be matched exactly (e.g. a name, number, or shor
       console.log("[Fact API] Skipping save: SUPABASE_URL or SUPABASE_API_SECRET_KEY not set");
     }
 
-    return NextResponse.json({ fact, sourceUrl });
+    return NextResponse.json({ fact });
   } catch (err) {
     console.error("Fact API error:", err);
     return NextResponse.json(
