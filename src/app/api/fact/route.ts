@@ -69,6 +69,25 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
     if (process.env.SUPABASE_URL && process.env.SUPABASE_API_SECRET_KEY) {
       try {
         const supabase = getSupabase();
+
+        // Prevent duplicate writes: if this exact fact text already exists, skip insert
+        const { data: existing } = await supabase
+          .from("facts")
+          .select("id, fact, source_url")
+          .eq("fact", fact)
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          console.log("[Fact API] Skipping insert — fact already exists:", existing.id);
+          return NextResponse.json({
+            fact: existing.fact,
+            sourceUrl: existing.source_url ?? null,
+            duplicate: true,
+            id: existing.id,
+          });
+        }
+
         const payload = {
           topic: trimmed,
           fact,
@@ -89,7 +108,75 @@ For sourceUrl, prefer a real, stable URL when possible (e.g. Wikipedia, Britanni
           });
           throw error;
         }
-        console.log("[Fact API] Saved fact:", data?.[0]?.id ?? "ok");
+        const insertedFact = data?.[0];
+        const factId = insertedFact?.id;
+        console.log("[Fact API] Saved fact:", factId ?? "ok");
+
+        // Generate and save a quiz question for this fact (one extra OpenAI call at creation time).
+        if (factId && typeof fact === "string" && fact.trim()) {
+          try {
+            // Prevent duplicate quiz for this fact: one quiz per fact_id.
+            const { data: existingQuiz } = await supabase
+              .from("fact_quizzes")
+              .select("id")
+              .eq("fact_id", factId)
+              .limit(1)
+              .maybeSingle();
+
+            if (existingQuiz) {
+              console.log("[Fact API] Skipping quiz — fact already has a quiz:", existingQuiz.id);
+            } else {
+            const quizCompletion = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: `You generate one short quiz question based on a fact. The answer must be contained in or directly implied by the fact.
+Reply with a single JSON object only. Use this exact shape:
+{"question": "One clear question (e.g. fill-in, short answer, or true/false)?", "answer": "The exact expected answer (short phrase or word)"}
+Keep the answer brief so it can be matched exactly (e.g. a name, number, or short phrase).`,
+                },
+                {
+                  role: "user",
+                  content: `Fact: ${fact}\n\nGenerate one quiz question and its exact expected answer. Reply with JSON only: {"question": "...", "answer": "..."}`,
+                },
+              ],
+              max_tokens: 200,
+              response_format: { type: "json_object" },
+            });
+            const quizRaw = quizCompletion.choices[0]?.message?.content?.trim() || "{}";
+            const quizParsed = JSON.parse(quizRaw) as { question?: string; answer?: string };
+            const quizQuestion = typeof quizParsed.question === "string" ? quizParsed.question.trim() : "";
+            const quizAnswer = typeof quizParsed.answer === "string" ? quizParsed.answer.trim() : "";
+            if (quizQuestion && quizAnswer) {
+              // Prevent duplicate quiz content: if this exact question already exists, skip insert.
+              const { data: duplicateQuiz } = await supabase
+                .from("fact_quizzes")
+                .select("id")
+                .eq("question", quizQuestion)
+                .limit(1)
+                .maybeSingle();
+
+              if (duplicateQuiz) {
+                console.log("[Fact API] Skipping quiz insert — question already exists:", duplicateQuiz.id);
+              } else {
+              const { error: quizError } = await supabase.from("fact_quizzes").insert({
+                fact_id: factId,
+                question: quizQuestion,
+                answer: quizAnswer,
+              });
+              if (quizError) {
+                console.error("[Fact API] Failed to save quiz:", quizError.message);
+              } else {
+                console.log("[Fact API] Saved quiz for fact:", factId);
+              }
+              }
+            }
+            }
+          } catch (quizErr) {
+            console.error("[Fact API] Quiz generation failed (fact still saved):", quizErr);
+          }
+        }
       } catch (dbErr) {
         const err = dbErr as { message?: string; code?: string; details?: string; hint?: string };
         console.error("[Fact API] Failed to save fact:", {

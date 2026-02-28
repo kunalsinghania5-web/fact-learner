@@ -76,6 +76,12 @@ export default function Home() {
           >
             See previous facts
           </Link>
+          <Link
+            href="/quiz"
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-center font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Quiz me
+          </Link>
         </form>
 
         {error && (
