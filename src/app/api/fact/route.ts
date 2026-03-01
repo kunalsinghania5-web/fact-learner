@@ -72,11 +72,7 @@ Reply with a single JSON object only, no other text. Use this exact shape:
 
         if (existing) {
           console.log("[Fact API] Skipping insert — fact already exists:", existing.id);
-          return NextResponse.json({
-            fact: existing.fact,
-            duplicate: true,
-            id: existing.id,
-          });
+          return NextResponse.json({ duplicate: true });
         }
 
         const payload = {
@@ -105,17 +101,6 @@ Reply with a single JSON object only, no other text. Use this exact shape:
         // Generate and save a quiz question for this fact (one extra OpenAI call at creation time).
         if (factId && typeof fact === "string" && fact.trim()) {
           try {
-            // Prevent duplicate quiz for this fact: one quiz per fact_id.
-            const { data: existingQuiz } = await supabase
-              .from("fact_quizzes")
-              .select("id")
-              .eq("fact_id", factId)
-              .limit(1)
-              .maybeSingle();
-
-            if (existingQuiz) {
-              console.log("[Fact API] Skipping quiz — fact already has a quiz:", existingQuiz.id);
-            } else {
             const quizCompletion = await openai.chat.completions.create({
               model: "gpt-4o-mini",
               messages: [
@@ -139,17 +124,6 @@ Keep the answer brief so it can be matched exactly (e.g. a name, number, or shor
             const quizQuestion = typeof quizParsed.question === "string" ? quizParsed.question.trim() : "";
             const quizAnswer = typeof quizParsed.answer === "string" ? quizParsed.answer.trim() : "";
             if (quizQuestion && quizAnswer) {
-              // Prevent duplicate quiz content: if this exact question already exists, skip insert.
-              const { data: duplicateQuiz } = await supabase
-                .from("fact_quizzes")
-                .select("id")
-                .eq("question", quizQuestion)
-                .limit(1)
-                .maybeSingle();
-
-              if (duplicateQuiz) {
-                console.log("[Fact API] Skipping quiz insert — question already exists:", duplicateQuiz.id);
-              } else {
               const { error: quizError } = await supabase.from("fact_quizzes").insert({
                 fact_id: factId,
                 question: quizQuestion,
@@ -160,8 +134,6 @@ Keep the answer brief so it can be matched exactly (e.g. a name, number, or shor
               } else {
                 console.log("[Fact API] Saved quiz for fact:", factId);
               }
-              }
-            }
             }
           } catch (quizErr) {
             console.error("[Fact API] Quiz generation failed (fact still saved):", quizErr);

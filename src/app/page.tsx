@@ -36,20 +36,39 @@ export default function Home() {
       return;
     }
     setLoading(true);
+    const trimmedTopic = topic.trim();
+    const maxRetries = 10;
+
     try {
-      const res = await fetch("/api/fact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: topic.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Something went wrong.");
+      let data: { fact?: string; duplicate?: boolean; error?: string };
+      let res: Response;
+      let attempts = 0;
+
+      do {
+        attempts++;
+        res = await fetch("/api/fact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: trimmedTopic }),
+        });
+        data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || "Something went wrong.");
+          return;
+        }
+        if (!data.duplicate) break;
+      } while (attempts < maxRetries);
+
+      if (data.duplicate) {
+        setError(
+          "We couldn't find a new fact for this topic after several tries. Try again or pick a different topic."
+        );
         return;
       }
+
       setFact(data.fact);
       setSpeakError(null);
-      // Refresh streak after generating a new fact (may have started or extended it)
       fetchStreak();
     } catch {
       setError("Could not reach the server. Try again.");
