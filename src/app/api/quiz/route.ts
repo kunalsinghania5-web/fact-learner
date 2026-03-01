@@ -11,10 +11,22 @@ function normalize(s: string): string {
 
 /**
  * GET /api/quiz — Returns one random quiz question (no answer).
+ * Query: exclude — optional comma-separated list of quiz IDs to exclude (avoids repeats).
  * Used by the Quiz me flow. Verification is done against stored answer via POST.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const excludeParam = searchParams.get("exclude");
+    const excludeIds = excludeParam
+      ? new Set(
+          excludeParam
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        )
+      : new Set<string>();
+
     const supabase = getSupabase();
     const { data: rows, error } = await supabase
       .from("fact_quizzes")
@@ -30,14 +42,24 @@ export async function GET() {
     }
 
     const list = rows ?? [];
-    if (list.length === 0) {
+    const available =
+      excludeIds.size > 0
+        ? list.filter((row) => !excludeIds.has(String(row.id)))
+        : list;
+
+    if (available.length === 0) {
       return NextResponse.json(
-        { error: "No quiz questions yet. Generate some facts first." },
+        {
+          error:
+            list.length === 0
+              ? "No quiz questions yet. Generate some facts first."
+              : "No more new questions in this session. Try again later or add more facts.",
+        },
         { status: 404 }
       );
     }
 
-    const chosen = list[Math.floor(Math.random() * list.length)];
+    const chosen = available[Math.floor(Math.random() * available.length)];
     return NextResponse.json({
       quizId: chosen.id,
       factId: chosen.fact_id,

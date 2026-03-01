@@ -8,7 +8,7 @@ A Next.js app that generates interesting facts on any topic using OpenAI, stores
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4
 - **Database**: Supabase (PostgreSQL via REST client)
-- **AI**: OpenAI API (`gpt-4o-mini` for facts, quizzes, and TTS via `/api/speak`)
+- **AI**: OpenAI API (Chat Completions, `gpt-4o-mini` for facts, quizzes, and learn-more; TTS via ElevenLabs in `/api/speak`)
 
 ## Project Structure
 

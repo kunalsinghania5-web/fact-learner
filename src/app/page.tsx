@@ -12,6 +12,9 @@ export default function Home() {
   const [streak, setStreak] = useState<number | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
+  const [learnMoreLoading, setLearnMoreLoading] = useState(false);
+  const [learnMoreDetail, setLearnMoreDetail] = useState<string | null>(null);
+  const [learnMoreError, setLearnMoreError] = useState<string | null>(null);
 
   async function fetchStreak() {
     try {
@@ -69,6 +72,8 @@ export default function Home() {
 
       setFact(data.fact);
       setSpeakError(null);
+      setLearnMoreDetail(null);
+      setLearnMoreError(null);
       fetchStreak();
     } catch {
       setError("Could not reach the server. Try again.");
@@ -101,6 +106,29 @@ export default function Home() {
       setSpeakError("Could not play audio. Try again.");
     } finally {
       setSpeaking(false);
+    }
+  }
+
+  async function handleLearnMore() {
+    if (!fact) return;
+    setLearnMoreError(null);
+    setLearnMoreLoading(true);
+    try {
+      const res = await fetch("/api/learn-more", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fact, topic: topic.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLearnMoreError(data.error ?? "Could not load more detail.");
+        return;
+      }
+      setLearnMoreDetail(typeof data.detail === "string" ? data.detail : null);
+    } catch {
+      setLearnMoreError("Could not load more detail. Try again.");
+    } finally {
+      setLearnMoreLoading(false);
     }
   }
 
@@ -184,6 +212,31 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleLearnMore}
+                  disabled={learnMoreLoading}
+                  className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  {learnMoreLoading ? "Loading…" : "Learn more"}
+                </button>
+              </div>
+              {learnMoreDetail && (
+                <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
+                  <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                    More detail
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
+                    {learnMoreDetail}
+                  </p>
+                </div>
+              )}
+              {learnMoreError && (
+                <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                  {learnMoreError}
+                </p>
+              )}
               {speakError && (
                 <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
                   {speakError}

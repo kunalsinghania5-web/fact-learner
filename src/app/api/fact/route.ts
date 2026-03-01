@@ -1,10 +1,29 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+/** Normalize fact to a set of words (lowercase, no punctuation) for overlap comparison. */
+function getWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+  );
+}
+
+/** Return how many words from newFact appear in existingFact. */
+function matchingWordCount(newFact: string, existingFact: string): number {
+  const newWords = getWords(newFact);
+  const existingWords = getWords(existingFact);
+  return [...newWords].filter((w) => existingWords.has(w)).length;
+}
 
 export async function POST(request: Request) {
   try {
@@ -25,35 +44,37 @@ export async function POST(request: Request) {
       );
     }
 
-    const completion = await openai.chat.completions.create({
+    // 1) Single OpenAI call: fact + quiz in one round-trip.
+    // Using Responses API + gpt-4o-mini: no reasoning tokens (4o-mini isn't a reasoning model).
+    // Alternative: keep gpt-5-nano and set reasoning: { effort: "low" } or "minimal" to reduce (not eliminate) reasoning tokens; gpt-5-nano does not support effort: "none".
+    const response = await openai.responses.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You give one short, interesting fact. Be accurate and concise.
+      instructions: `You give one short, interesting fact and one quiz question about it. Be accurate and concise.
 Reply with a single JSON object only, no other text. Use this exact shape:
-{"fact": "the fact text"}`,
-        },
-        {
-          role: "user",
-          content: `Give me one interesting fact about: ${trimmed}. Reply with JSON only: {"fact": "..."}`,
-        },
-      ],
-      max_tokens: 300,
-      response_format: { type: "json_object" },
+{"fact": "the fact text", "question": "One clear quiz question (fill-in, short answer, or true/false)", "answer": "The exact expected answer (short phrase or word)"}
+Keep the answer brief so it can be matched exactly.`,
+      input: `Give me one interesting fact about: ${trimmed}. Then one quiz question and its exact answer. Reply with JSON only: {"fact": "...", "question": "...", "answer": "..."}`,
+      max_output_tokens: 512,
+      text: { format: { type: "json_object" } },
     });
 
-    const raw =
-      completion.choices[0]?.message?.content?.trim() || "{}";
+    const raw = (response.output_text ?? "").trim() || "{}";
     let fact = "No fact was returned.";
+    let quizQuestion = "";
+    let quizAnswer = "";
 
     try {
-      const parsed = JSON.parse(raw) as { fact?: string };
+      const parsed = JSON.parse(raw) as { fact?: string; question?: string; answer?: string };
       if (typeof parsed.fact === "string" && parsed.fact.trim()) {
         fact = parsed.fact.trim();
       }
+      if (typeof parsed.question === "string" && parsed.question.trim()) {
+        quizQuestion = parsed.question.trim();
+      }
+      if (typeof parsed.answer === "string" && parsed.answer.trim()) {
+        quizAnswer = parsed.answer.trim();
+      }
     } catch {
-      // If JSON parsing fails, treat raw as the fact (backward compatibility)
       if (raw && raw !== "{}") fact = raw;
     }
 
@@ -62,17 +83,24 @@ Reply with a single JSON object only, no other text. Use this exact shape:
       try {
         const supabase = getSupabase();
 
-        // Prevent duplicate writes: if this exact fact text already exists, skip insert
-        const { data: existing } = await supabase
+        // Single query: fetch same-topic facts, then check exact match + word overlap in memory (one round-trip instead of two).
+        const { data: sameTopicFacts } = await supabase
           .from("facts")
           .select("id, fact")
-          .eq("fact", fact)
-          .limit(1)
-          .maybeSingle();
+          .eq("topic", trimmed);
 
-        if (existing) {
-          console.log("[Fact API] Skipping insert — fact already exists:", existing.id);
+        const exactMatch = (sameTopicFacts ?? []).find((row) => row.fact === fact);
+        if (exactMatch) {
+          console.log("[Fact API] Skipping insert — fact already exists (exact):", exactMatch.id);
           return NextResponse.json({ duplicate: true });
+        }
+
+        const overlapThreshold = 15;
+        for (const row of sameTopicFacts ?? []) {
+          if (matchingWordCount(fact, row.fact) > overlapThreshold) {
+            console.log("[Fact API] Skipping insert — fact too similar (word overlap):", row.id);
+            return NextResponse.json({ duplicate: true });
+          }
         }
 
         const payload = {
@@ -98,33 +126,12 @@ Reply with a single JSON object only, no other text. Use this exact shape:
         const factId = insertedFact?.id;
         console.log("[Fact API] Saved fact:", factId ?? "ok");
 
-        // Generate and save a quiz question for this fact (one extra OpenAI call at creation time).
-        if (factId && typeof fact === "string" && fact.trim()) {
-          try {
-            const quizCompletion = await openai.chat.completions.create({
-              model: "gpt-4o-mini",
-              messages: [
-                {
-                  role: "system",
-                  content: `You generate one short quiz question based on a fact. The answer must be contained in or directly implied by the fact.
-Reply with a single JSON object only. Use this exact shape:
-{"question": "One clear question (e.g. fill-in, short answer, or true/false)?", "answer": "The exact expected answer (short phrase or word)"}
-Keep the answer brief so it can be matched exactly (e.g. a name, number, or short phrase).`,
-                },
-                {
-                  role: "user",
-                  content: `Fact: ${fact}\n\nGenerate one quiz question and its exact expected answer. Reply with JSON only: {"question": "...", "answer": "..."}`,
-                },
-              ],
-              max_tokens: 200,
-              response_format: { type: "json_object" },
-            });
-            const quizRaw = quizCompletion.choices[0]?.message?.content?.trim() || "{}";
-            const quizParsed = JSON.parse(quizRaw) as { question?: string; answer?: string };
-            const quizQuestion = typeof quizParsed.question === "string" ? quizParsed.question.trim() : "";
-            const quizAnswer = typeof quizParsed.answer === "string" ? quizParsed.answer.trim() : "";
-            if (quizQuestion && quizAnswer) {
-              const { error: quizError } = await supabase.from("fact_quizzes").insert({
+        // Save quiz after response is sent so the user sees the fact immediately (quiz is only needed on Quiz page).
+        if (factId && quizQuestion && quizAnswer) {
+          after(async () => {
+            try {
+              const sb = getSupabase();
+              const { error: quizError } = await sb.from("fact_quizzes").insert({
                 fact_id: factId,
                 question: quizQuestion,
                 answer: quizAnswer,
@@ -134,10 +141,10 @@ Keep the answer brief so it can be matched exactly (e.g. a name, number, or shor
               } else {
                 console.log("[Fact API] Saved quiz for fact:", factId);
               }
+            } catch (quizErr) {
+              console.error("[Fact API] Quiz save in after():", quizErr);
             }
-          } catch (quizErr) {
-            console.error("[Fact API] Quiz generation failed (fact still saved):", quizErr);
-          }
+          });
         }
       } catch (dbErr) {
         const err = dbErr as { message?: string; code?: string; details?: string; hint?: string };

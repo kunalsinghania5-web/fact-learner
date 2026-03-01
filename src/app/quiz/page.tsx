@@ -25,6 +25,8 @@ export default function QuizPage() {
     correct: boolean;
     fact: FactReveal | null;
   } | null>(null);
+  /** Quiz IDs already shown this session — we pass these to the API so it never repeats. */
+  const [seenQuizIds, setSeenQuizIds] = useState<Set<string>>(new Set());
 
   async function loadQuestion() {
     setError(null);
@@ -33,17 +35,22 @@ export default function QuizPage() {
     setQuestion(null);
     setLoadingQuestion(true);
     try {
-      const res = await fetch("/api/quiz");
+      const exclude =
+        seenQuizIds.size > 0 ? Array.from(seenQuizIds).join(",") : "";
+      const url = exclude ? `/api/quiz?exclude=${encodeURIComponent(exclude)}` : "/api/quiz";
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Could not load a question.");
         return;
       }
-      setQuestion({
+      const next: QuizQuestion = {
         quizId: data.quizId,
         factId: data.factId,
         question: data.question,
-      });
+      };
+      setQuestion(next);
+      setSeenQuizIds((prev) => new Set(prev).add(String(next.quizId)));
     } catch {
       setError("Could not reach the server. Try again.");
     } finally {
