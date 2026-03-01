@@ -4,6 +4,30 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
+// Curated list of diverse topics for "random topic" — keeps the surprise fun and the facts varied.
+const RANDOM_TOPICS = [
+  "space exploration",
+  "ancient Rome",
+  "ocean depths",
+  "human brain",
+  "world cuisines",
+  "inventions",
+  "endangered species",
+  "linguistics",
+  "architecture",
+  "music history",
+  "weather phenomena",
+  "mathematics",
+  "mythology",
+  "robotics",
+  "coffee",
+  "volcanoes",
+  "chess",
+  "sleep science",
+  "origami",
+  "cryptography",
+];
+
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [fact, setFact] = useState<string | null>(null);
@@ -30,16 +54,10 @@ export default function Home() {
     fetchStreak();
   }, []);
 
-  async function handleGetFact(e: React.FormEvent) {
-    e.preventDefault();
+  async function fetchFactForTopic(trimmedTopic: string) {
     setError(null);
     setFact(null);
-    if (!topic.trim()) {
-      setError("Please enter a topic.");
-      return;
-    }
     setLoading(true);
-    const trimmedTopic = topic.trim();
     const maxRetries = 10;
 
     try {
@@ -70,7 +88,7 @@ export default function Home() {
         return;
       }
 
-      setFact(data.fact);
+      setFact(data.fact ?? null);
       setSpeakError(null);
       setLearnMoreDetail(null);
       setLearnMoreError(null);
@@ -80,6 +98,23 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleGetFact(e: React.FormEvent) {
+    e.preventDefault();
+    if (!topic.trim()) {
+      setError("Please enter a topic.");
+      return;
+    }
+    await fetchFactForTopic(topic.trim());
+  }
+
+  function handleRandomTopic() {
+    const randomTopic =
+      RANDOM_TOPICS[Math.floor(Math.random() * RANDOM_TOPICS.length)];
+    setTopic(randomTopic);
+    setError(null);
+    fetchFactForTopic(randomTopic);
   }
 
   async function handleSpeak() {
@@ -160,15 +195,35 @@ export default function Home() {
           <label htmlFor="topic" className="sr-only">
             Topic
           </label>
-          <input
-            id="topic"
-            type="text"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g. space, history, cats"
-            className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-400"
-            disabled={loading}
-          />
+          <div className="flex gap-2">
+            <input
+              id="topic"
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="e.g. space, history, cats"
+              className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-400"
+              disabled={loading}
+            />
+            <button
+              type="button"
+              onClick={handleRandomTopic}
+              disabled={loading}
+              title="Surprise me — random topic"
+              aria-label="Pick a random topic and get a fact"
+              className="flex h-[46px] w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="h-5 w-5"
+                aria-hidden
+              >
+                <path fillRule="evenodd" d="M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm4.5 7.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm7.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-3-4.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-4.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
           <button
             type="submit"
             disabled={loading}
