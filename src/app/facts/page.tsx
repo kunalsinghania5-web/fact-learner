@@ -89,6 +89,7 @@ export default function FactsListPage() {
                     <td className="px-4 py-3">
                       <Link
                         href={`/facts/${row.id}`}
+                        prefetch={false}
                         className="font-medium text-zinc-200 hover:text-white"
                       >
                         {row.topic}
