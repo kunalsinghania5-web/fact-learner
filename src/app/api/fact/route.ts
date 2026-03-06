@@ -45,16 +45,14 @@ export async function POST(request: Request) {
     }
 
     // 1) Single OpenAI call: fact + quiz in one round-trip.
-    // Using Responses API + gpt-4o-mini: no reasoning tokens (4o-mini isn't a reasoning model).
-    // Alternative: keep gpt-5-nano and set reasoning: { effort: "low" } or "minimal" to reduce (not eliminate) reasoning tokens; gpt-5-nano does not support effort: "none".
     const response = await openai.responses.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       instructions: `You give one short, interesting fact and one quiz question about it. Be accurate and concise.
 Reply with a single JSON object only, no other text. Use this exact shape:
 {"fact": "the fact text", "question": "One clear quiz question (fill-in, short answer, or true/false)", "answer": "The exact expected answer (short phrase or word)"}
 Keep the answer brief so it can be matched exactly.`,
       input: `Give me one interesting fact about: ${trimmed}. Then one quiz question and its exact answer. Reply with JSON only: {"fact": "...", "question": "...", "answer": "..."}`,
-      max_output_tokens: 512,
+     // max_output_tokens: 512,
       text: { format: { type: "json_object" } },
     });
 

@@ -1,8 +1,54 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
+
+const WEEKLY_STORAGE_KEY = "fact-learner-weekly";
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+type FactMode = "daily" | "weekly";
+
+interface StoredWeekly {
+  topic: string;
+  setAt: string;
+}
+
+function getStoredWeeklyTopic(): StoredWeekly | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(WEEKLY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredWeekly;
+    if (!parsed?.topic?.trim() || !parsed?.setAt) return null;
+    const setAt = new Date(parsed.setAt).getTime();
+    if (Number.isNaN(setAt) || Date.now() - setAt >= SEVEN_DAYS_MS) return null;
+    return { topic: parsed.topic.trim(), setAt: parsed.setAt };
+  } catch {
+    return null;
+  }
+}
+
+function setStoredWeeklyTopic(topic: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      WEEKLY_STORAGE_KEY,
+      JSON.stringify({ topic: topic.trim(), setAt: new Date().toISOString() })
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function clearStoredWeeklyTopic(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(WEEKLY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 // Curated list of diverse topics for "random topic" — keeps the surprise fun and the facts varied.
 const RANDOM_TOPICS = [
@@ -29,8 +75,11 @@ const RANDOM_TOPICS = [
 ];
 
 export default function Home() {
+  const [factMode, setFactMode] = useState<FactMode>("daily");
   const [topic, setTopic] = useState("");
+  const [weeklyTopic, setWeeklyTopic] = useState<StoredWeekly | null>(null);
   const [fact, setFact] = useState<string | null>(null);
+  const [displayTopic, setDisplayTopic] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streak, setStreak] = useState<number | null>(null);
@@ -39,6 +88,24 @@ export default function Home() {
   const [learnMoreLoading, setLearnMoreLoading] = useState(false);
   const [learnMoreDetail, setLearnMoreDetail] = useState<string | null>(null);
   const [learnMoreError, setLearnMoreError] = useState<string | null>(null);
+
+  const fetchWeeklyTopic = useCallback(async () => {
+    try {
+      const res = await fetch("/api/weekly-topic");
+      const data = await res.json();
+      if (res.ok && data.weeklyTopic) {
+        setWeeklyTopic({
+          topic: data.weeklyTopic.topic,
+          setAt: data.weeklyTopic.setAt,
+        });
+        return;
+      }
+      const local = getStoredWeeklyTopic();
+      setWeeklyTopic(local);
+    } catch {
+      setWeeklyTopic(getStoredWeeklyTopic());
+    }
+  }, []);
 
   async function fetchStreak() {
     try {
@@ -54,10 +121,47 @@ export default function Home() {
     fetchStreak();
   }, []);
 
-  async function fetchFactForTopic(trimmedTopic: string) {
+  useEffect(() => {
+    if (factMode === "weekly") fetchWeeklyTopic();
+  }, [factMode, fetchWeeklyTopic]);
+
+  async function fetchFactForTopic(
+    trimmedTopic: string,
+    options?: { saveAsWeeklyTopic?: boolean }
+  ) {
     setError(null);
     setFact(null);
     setLoading(true);
+
+    if (options?.saveAsWeeklyTopic) {
+      try {
+        const res = await fetch("/api/weekly-topic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: trimmedTopic }),
+        });
+        const data = await res.json();
+        if (res.status === 401) {
+          setStoredWeeklyTopic(trimmedTopic);
+          setWeeklyTopic({
+            topic: trimmedTopic,
+            setAt: new Date().toISOString(),
+          });
+        } else if (!res.ok) {
+          setError(data.error || "Could not save weekly topic.");
+          setLoading(false);
+          return;
+        } else if (data.weeklyTopic) {
+          clearStoredWeeklyTopic();
+          setWeeklyTopic({ topic: data.weeklyTopic.topic, setAt: data.weeklyTopic.setAt });
+        }
+      } catch {
+        setError("Could not save weekly topic. Try again.");
+        setLoading(false);
+        return;
+      }
+    }
+
     const maxRetries = 10;
 
     try {
@@ -89,9 +193,13 @@ export default function Home() {
       }
 
       setFact(data.fact ?? null);
+      setDisplayTopic(trimmedTopic);
       setSpeakError(null);
       setLearnMoreDetail(null);
       setLearnMoreError(null);
+      if (options?.saveAsWeeklyTopic) {
+        fetchWeeklyTopic();
+      }
       fetchStreak();
     } catch {
       setError("Could not reach the server. Try again.");
@@ -102,11 +210,52 @@ export default function Home() {
 
   async function handleGetFact(e: React.FormEvent) {
     e.preventDefault();
-    if (!topic.trim()) {
-      setError("Please enter a topic.");
+    if (factMode === "daily") {
+      if (!topic.trim()) {
+        setError("Please enter a topic.");
+        return;
+      }
+      await fetchFactForTopic(topic.trim());
       return;
     }
-    await fetchFactForTopic(topic.trim());
+    // Weekly: either setting a new topic or getting fact for existing weekly topic
+    if (weeklyTopic) {
+      await fetchFactForTopic(weeklyTopic.topic);
+      return;
+    }
+    if (!topic.trim()) {
+      setError("Please enter a topic for this week.");
+      return;
+    }
+    await fetchFactForTopic(topic.trim(), { saveAsWeeklyTopic: true });
+  }
+
+  function handleSetWeeklyTopic(e: React.FormEvent) {
+    e.preventDefault();
+    if (!topic.trim()) {
+      setError("Please enter a topic for this week.");
+      return;
+    }
+    setError(null);
+    fetchFactForTopic(topic.trim(), { saveAsWeeklyTopic: true });
+  }
+
+  async function handleChangeWeeklyTopic() {
+    clearStoredWeeklyTopic();
+    setWeeklyTopic(null);
+    setTopic("");
+    setFact(null);
+    setDisplayTopic("");
+    setError(null);
+    try {
+      const res = await fetch("/api/weekly-topic", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Could not clear weekly topic.");
+      }
+    } catch {
+      setError("Could not clear weekly topic. Try again.");
+    }
   }
 
   function handleRandomTopic() {
@@ -152,7 +301,7 @@ export default function Home() {
       const res = await fetch("/api/learn-more", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fact, topic: topic.trim() || undefined }),
+        body: JSON.stringify({ fact, topic: (displayTopic || topic).trim() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -191,46 +340,133 @@ export default function Home() {
           Enter a topic and get one interesting fact from Open AI.
         </p>
 
-        <form onSubmit={handleGetFact} className="flex flex-col gap-4">
-          <label htmlFor="topic" className="sr-only">
-            Topic
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="topic"
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. space, history, cats"
-              className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-400"
-              disabled={loading}
-            />
-            <button
-              type="button"
-              onClick={handleRandomTopic}
-              disabled={loading}
-              title="Surprise me — random topic"
-              aria-label="Pick a random topic and get a fact"
-              className="flex h-[46px] w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="h-5 w-5"
-                aria-hidden
-              >
-                <path fillRule="evenodd" d="M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm4.5 7.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm7.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-3-4.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-4.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
+        <div className="mb-6 flex rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900">
           <button
-            type="submit"
-            disabled={loading}
-            className="rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            type="button"
+            onClick={() => {
+              setFactMode("daily");
+              setError(null);
+            }}
+            aria-pressed={factMode === "daily"}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              factMode === "daily"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
           >
-            {loading ? "Getting fact…" : "Get a fact"}
+            Daily fact
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFactMode("weekly");
+              setError(null);
+              fetchWeeklyTopic();
+            }}
+            aria-pressed={factMode === "weekly"}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              factMode === "weekly"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Weekly fact
+          </button>
+        </div>
+
+        <form
+          onSubmit={factMode === "daily" ? handleGetFact : weeklyTopic ? handleGetFact : handleSetWeeklyTopic}
+          className="flex flex-col gap-4"
+        >
+          {factMode === "daily" ? (
+            <>
+              <label htmlFor="topic" className="sr-only">
+                Topic
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="topic"
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="e.g. space, history, cats"
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-400"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={handleRandomTopic}
+                  disabled={loading}
+                  title="Surprise me — random topic"
+                  aria-label="Pick a random topic and get a fact"
+                  className="flex h-[46px] w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                    aria-hidden
+                  >
+                    <path fillRule="evenodd" d="M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm4.5 7.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm7.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-3-4.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm-4.5 0a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {loading ? "Getting fact…" : "Get a fact"}
+              </button>
+            </>
+          ) : (
+            <>
+              {weeklyTopic ? (
+                <>
+                  <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                    This week&apos;s topic: <strong>{weeklyTopic.topic}</strong>
+                    <button
+                      type="button"
+                      onClick={handleChangeWeeklyTopic}
+                      className="ml-2 text-sm underline hover:no-underline"
+                    >
+                      Change topic
+                    </button>
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    {loading ? "Getting fact…" : "Get this week's fact"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="weekly-topic" className="sr-only">
+                    Topic for this week
+                  </label>
+                  <input
+                    id="weekly-topic"
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. space, history, cats — topic for the next 7 days"
+                    className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-400"
+                    disabled={loading}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    {loading ? "Setting topic & getting fact…" : "Set topic & get fact"}
+                  </button>
+                </>
+              )}
+            </>
+          )}
 
           {error && (
             <p className="rounded-lg bg-red-50 px-4 py-3 text-red-700 dark:bg-red-950/50 dark:text-red-300">
@@ -243,7 +479,7 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                    Fact about "{topic}"
+                    {factMode === "daily" ? "Daily" : "Weekly"} fact about &quot;{displayTopic || topic}&quot;
                   </p>
                   <p className="mt-2 text-zinc-800 dark:text-zinc-200">{fact}</p>
                 </div>
